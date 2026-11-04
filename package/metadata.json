@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "xmerik"
+            }
+        ],
+        "Category": "System Information",
+        "Description": "Claude Code token usage and estimated cost from local session logs",
+        "Icon": "view-statistics",
+        "Id": "local.claudeusage",
+        "License": "MIT",
+        "Name": "Claude Code Usage",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

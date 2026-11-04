@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="refreshSeconds" type="Int">
+      <default>60</default>
+      <min>10</min>
+      <max>3600</max>
+    </entry>
+    <!-- 0 = current 5h block, 1 = today, 2 = last 7 days -->
+    <entry name="panelPeriod" type="Int">
+      <default>1</default>
+    </entry>
+    <entry name="showCost" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showTokens" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showReset" type="Bool">
+      <default>true</default>
+    </entry>
+    <entry name="showIcon" type="Bool">
+      <default>true</default>
+    </entry>
+    <!-- SSH hosts to include, one "host:/path/to/.claude" per line -->
+    <entry name="remotes" type="String">
+      <default></default>
+    </entry>
+  </group>
+</kcfg>
