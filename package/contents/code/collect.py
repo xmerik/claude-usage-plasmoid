@@ -304,10 +304,38 @@ def summarise(remotes=()):
     }
 
 
+def fmt_tokens(n):
+    for div, unit in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= div:
+            return f"{n / div:.{0 if n >= div * 10 else 1}f}{unit}"
+    return str(n)
+
+
+def text_line(out, period):
+    """One-line summary matching the panel label, e.g. '21M · $11.60 · ⟳ 2h52'."""
+    if not out.get("ok"):
+        return f"Claude usage: error ({out.get('error', 'unknown')})"
+    b = out.get(period) or {"tokens": 0, "cost": 0.0}
+    cost = b["cost"]
+    parts = [fmt_tokens(b["tokens"]), f"${cost:.0f}" if cost >= 100 else f"${cost:.2f}"]
+    blk = out.get("block")
+    if blk:
+        m = blk["minutesLeft"]
+        parts.append(f"⟳ {m // 60}h{m % 60:02d}" if m >= 60 else f"⟳ {m}m")
+    bad = [h["name"] for h in out.get("hosts", []) if not h.get("ok", True) or h.get("stale")]
+    if bad:
+        parts.append("⚠ " + ", ".join(bad))
+    return " · ".join(parts)
+
+
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description="Summarise Claude Code usage as JSON, or as one line with --text.")
     ap.add_argument("--remote", action="append", default=[], metavar="HOST:PATH",
                     help="SSH host and its Claude config dir, e.g. server:~/.claude")
+    ap.add_argument("--text", action="store_true",
+                    help="print a one-line summary instead of JSON (for status lines and terminals)")
+    ap.add_argument("--period", choices=["block", "today", "week", "month"], default="today",
+                    help="totals shown by --text (default: today)")
     ap.add_argument("--rows", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--days", type=int, default=31, help=argparse.SUPPRESS)
     args = ap.parse_args()
@@ -323,4 +351,10 @@ if __name__ == "__main__":
     except Exception as e:  # the widget shows this instead of going blank
         out = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     out["elapsedMs"] = int((time.monotonic() - t0) * 1000)
-    json.dump(out, sys.stdout, separators=(",", ":"))
+    if args.text:
+        # Windows consoles may default to a legacy code page; ⟳ and · need UTF-8.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        print(text_line(out, args.period))
+    else:
+        json.dump(out, sys.stdout, separators=(",", ":"))
