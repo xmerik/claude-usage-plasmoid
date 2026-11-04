@@ -16,7 +16,7 @@ Download `claude-usage-*.plasmoid` from the
 [latest release](https://github.com/xmerik/claude-usage-plasmoid/releases/latest), then:
 
 ```bash
-kpackagetool6 -t Plasma/Applet -i claude-usage-1.1.plasmoid
+kpackagetool6 -t Plasma/Applet -i claude-usage-1.2.plasmoid
 systemctl --user restart plasma-plasmashell
 ```
 
@@ -48,8 +48,10 @@ server:~/.claude
 The widget runs the collector on the host over SSH (`ssh HOST python3 -I - --rows`, with
 the script piped in, so nothing gets installed there). Only per-request token counts and
 cost snapshots come back, never transcript text. This needs key-based SSH (BatchMode)
-and `python3` on the host. If a host is unreachable, the widget shows its last cached
-numbers with a warning.
+and `python3` on the host. A host that's simply offline (asleep, away, no route) is
+labelled *offline* in the Hosts list with the time of its last cached numbers, which are
+still counted. Real problems, like a rejected key or missing `python3`, show a one-line
+warning in the popup (hover it for the full SSH message) and a warning icon in the panel.
 
 ## Without Plasma: terminal, status line, Windows / WSL
 
@@ -62,7 +64,7 @@ $ python3 collect.py --text
 ```
 
 `--period block|today|week|month` picks the totals (default `today`), and `--remote`
-works as above. A host that can't be reached is flagged as `⚠ name`.
+works as above. A host with a real error is flagged as `⚠ name`; offline hosts aren't.
 
 ### Claude Code status line
 

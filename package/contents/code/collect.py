@@ -175,12 +175,19 @@ def rows_mode(days):
               sys.stdout, separators=(",", ":"))
 
 
+# ssh errors that just mean the machine is asleep, away or off: expected for laptops,
+# so the widget shows "offline" quietly instead of a warning.
+OFFLINE = re.compile(r"no route to host|timed out|connection refused|network is unreachable|"
+                     r"could not resolve|name or service not known|host is down|connection reset|"
+                     r"connection closed|temporary failure in name resolution", re.I)
+
+
 def fetch_remote(spec):
     """Run this script on an SSH host in --rows mode. Returns (name, msgs, costs, status)."""
     name, _, path = spec.partition(":")
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)
     cache = CACHE.with_name(f"claude-usage-plasmoid-remote-{safe}.json")
-    status = {"name": name, "ok": False, "stale": False, "error": ""}
+    status = {"name": name, "ok": False, "stale": False, "offline": False, "error": ""}
     env = f"CLAUDE_CONFIG_DIR={shlex.quote(path)} " if path else ""
     cmd = ["ssh", "-C", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", name,
            f"{env}python3 -I - --rows --days 31"]
@@ -198,6 +205,7 @@ def fetch_remote(spec):
             pass
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as e:
         status["error"] = str(e) or type(e).__name__
+        status["offline"] = isinstance(e, subprocess.TimeoutExpired) or bool(OFFLINE.search(status["error"]))
         try:
             data = json.loads(cache.read_text())
             status["stale"] = True
@@ -322,7 +330,7 @@ def text_line(out, period):
     if blk:
         m = blk["minutesLeft"]
         parts.append(f"⟳ {m // 60}h{m % 60:02d}" if m >= 60 else f"⟳ {m}m")
-    bad = [h["name"] for h in out.get("hosts", []) if not h.get("ok", True) or h.get("stale")]
+    bad = [h["name"] for h in out.get("hosts", []) if not h.get("ok", True) and not h.get("offline")]
     if bad:
         parts.append("⚠ " + ", ".join(bad))
     return " · ".join(parts)

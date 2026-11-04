@@ -21,7 +21,35 @@ PlasmoidItem {
         .filter(r => /^[A-Za-z0-9._@-]+:[A-Za-z0-9._~\/-]*$/.test(r))
     readonly property string command: "python3 -I '" + collector + "'"
         + remotes.map(r => " --remote '" + r + "'").join("")
-    readonly property var failedHosts: usage && usage.hosts ? usage.hosts.filter(h => !h.ok) : []
+    // Offline hosts (asleep, away) are expected and only get a quiet label; real errors
+    // (key rejected, python3 missing, ...) get a one-line banner and the warning icon.
+    readonly property var errorHosts: usage && usage.hosts ? usage.hosts.filter(h => !h.ok && !h.offline) : []
+    readonly property var offlineHosts: usage && usage.hosts ? usage.hosts.filter(h => !h.ok && h.offline) : []
+
+    function shortError(e) {
+        if (/permission denied/i.test(e)) return i18n("SSH key rejected")
+        if (/host key verification failed|remote host identification has changed/i.test(e)) return i18n("SSH host key changed")
+        if (/python3.*not found|no such file.*python3/i.test(e)) return i18n("python3 not found on host")
+        const line = (e || "").split("\n")[0]
+        return line.length > 60 ? line.slice(0, 57) + "…" : line
+    }
+    function hostNote(name) {
+        for (const h of (usage && usage.hosts) || []) {
+            if (h.name !== name || h.ok) continue
+            const when = h.stale ? " · " + fmtTime(h.fetched) : ""
+            return (h.offline ? i18n("offline") : i18n("error")) + when
+        }
+        return ""
+    }
+    // Every configured host, including ones with no tokens this week or no cached data.
+    readonly property var hostRows: {
+        if (!usage || !usage.ok || !usage.hosts || usage.hosts.length < 2) return []
+        const rows = usage.week.hosts.map(h => Object.assign({}, h, { note: hostNote(h.name) }))
+        for (const h of usage.hosts)
+            if (!rows.some(r => r.name === h.name))
+                rows.push({ name: h.name, tokens: 0, cost: 0, note: hostNote(h.name) })
+        return rows
+    }
 
     readonly property var panelBucket: {
         if (!usage || !usage.ok) return null
@@ -92,8 +120,10 @@ PlasmoidItem {
         const t = usage.today, b = usage.block
         let s = i18n("Today: %1 tokens · ≈%2", fmtTokens(t.tokens), fmtCost(t.cost))
         if (b) s += "\n" + i18n("5h block: %1 tokens · resets in %2", fmtTokens(b.tokens), fmtMinutes(b.minutesLeft))
-        for (const h of failedHosts)
-            s += "\n⚠ " + (h.stale ? i18n("%1 unreachable, showing cached data", h.name) : i18n("%1 unreachable", h.name))
+        for (const h of errorHosts)
+            s += "\n⚠ " + h.name + ": " + shortError(h.error)
+        for (const h of offlineHosts)
+            s += "\n" + (h.stale ? i18n("%1 offline, last seen %2", h.name, fmtTime(h.fetched)) : i18n("%1 offline", h.name))
         return s
     }
 
@@ -120,7 +150,7 @@ PlasmoidItem {
 
             Kirigami.Icon {
                 visible: root.cfg.showIcon || compact.vertical
-                source: root.errorText || root.failedHosts.length ? "dialog-warning" : "view-statistics"
+                source: root.errorText || root.errorHosts.length ? "dialog-warning" : "view-statistics"
                 Layout.preferredWidth: Kirigami.Units.iconSizes.small
                 Layout.preferredHeight: Kirigami.Units.iconSizes.small
             }
@@ -145,7 +175,7 @@ PlasmoidItem {
         Layout.minimumWidth: Kirigami.Units.gridUnit * 20
         Layout.minimumHeight: Kirigami.Units.gridUnit * 22
         Layout.preferredWidth: Kirigami.Units.gridUnit * 22
-        Layout.preferredHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2
+        Layout.preferredHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2 + Kirigami.Units.gridUnit * 2
         collapseMarginsHint: true
 
         header: PlasmaExtras.PlasmoidHeading {
@@ -165,200 +195,220 @@ PlasmoidItem {
             }
         }
 
-        ColumnLayout {
-            id: content
+        PlasmaComponents.ScrollView {
+            id: scroll
             anchors.fill: parent
-            anchors.margins: Kirigami.Units.largeSpacing
-            spacing: Kirigami.Units.largeSpacing
+            contentWidth: availableWidth
+            QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
-            PlasmaExtras.PlaceholderMessage {
-                visible: !!root.errorText
-                Layout.fillWidth: true
-                iconName: "dialog-warning"
-                text: i18n("Couldn't read usage")
-                explanation: root.errorText
-            }
+            Item {
+                width: scroll.availableWidth
+                implicitHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2
 
-            Repeater {
-                model: root.failedHosts
-                Kirigami.InlineMessage {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    visible: true
-                    type: modelData.stale ? Kirigami.MessageType.Warning : Kirigami.MessageType.Error
-                    text: (modelData.stale
-                           ? i18n("%1 is unreachable, so its numbers are from %2.", modelData.name, root.fmtTime(modelData.fetched))
-                           : i18n("%1 is unreachable and not included.", modelData.name)) + "\n" + modelData.error
-                }
-            }
+                ColumnLayout {
+                    id: content
+                    x: Kirigami.Units.largeSpacing
+                    y: Kirigami.Units.largeSpacing
+                    width: parent.width - Kirigami.Units.largeSpacing * 2
+                    spacing: Kirigami.Units.largeSpacing
 
-            // Current 5-hour block
-            ColumnLayout {
-                visible: !root.errorText && !!root.usage
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    PlasmaComponents.Label {
-                        text: i18n("Current 5-hour block")
-                        font.bold: true
+                    PlasmaExtras.PlaceholderMessage {
+                        visible: !!root.errorText
                         Layout.fillWidth: true
+                        iconName: "dialog-warning"
+                        text: i18n("Couldn't read usage")
+                        explanation: root.errorText
                     }
-                    PlasmaComponents.Label {
-                        opacity: 0.7
-                        text: root.usage && root.usage.block
-                              ? i18n("%1–%2 · resets in %3", root.fmtTime(root.usage.block.start),
-                                     root.fmtTime(root.usage.block.end), root.fmtMinutes(root.usage.block.minutesLeft))
-                              : i18n("No active block")
+
+                    Repeater {
+                        model: root.errorHosts
+                        Kirigami.InlineMessage {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            visible: true
+                            type: Kirigami.MessageType.Warning
+                            text: modelData.name + ": " + root.shortError(modelData.error)
+                            HoverHandler { id: errHover }
+                            PlasmaComponents.ToolTip.text: modelData.error
+                                + (modelData.stale ? "\n" + i18n("Showing numbers from %1.", root.fmtTime(modelData.fetched)) : "")
+                            PlasmaComponents.ToolTip.visible: errHover.hovered
+                        }
                     }
-                }
-                PlasmaComponents.ProgressBar {
-                    Layout.fillWidth: true
-                    visible: !!(root.usage && root.usage.block)
-                    from: 0
-                    to: 300
-                    value: root.usage && root.usage.block ? 300 - root.usage.block.minutesLeft : 0
-                }
-                PlasmaComponents.Label {
-                    visible: !!(root.usage && root.usage.block)
-                    text: root.usage && root.usage.block
-                          ? i18n("%1 tokens · ≈%2 · %3 requests", root.fmtTokens(root.usage.block.tokens),
-                                 root.fmtCost(root.usage.block.cost), root.usage.block.messages)
-                          : ""
-                }
-            }
 
-            // Period summary table
-            GridLayout {
-                visible: !root.errorText && !!root.usage
-                Layout.fillWidth: true
-                columns: 4
-                columnSpacing: Kirigami.Units.largeSpacing
-                rowSpacing: Kirigami.Units.smallSpacing
+                    // Current 5-hour block
+                    ColumnLayout {
+                        visible: !root.errorText && !!root.usage
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
 
-                // One flat list of cells, row by row: header row, then Today / 7 days / 30 days.
-                Repeater {
-                    model: {
-                        const cells = [{ t: "" }, { t: i18n("Tokens"), h: true }, { t: i18n("≈ Cost"), h: true }, { t: i18n("Sessions"), h: true }]
-                        if (root.usage && root.usage.ok) {
-                            for (const [label, b] of [[i18n("Today"), root.usage.today],
-                                                      [i18n("Last 7 days"), root.usage.week],
-                                                      [i18n("Last 30 days"), root.usage.month]]) {
-                                cells.push({ t: label, first: true }, { t: root.fmtTokens(b.tokens) },
-                                           { t: root.fmtCost(b.cost) }, { t: String(b.sessions) })
+                        RowLayout {
+                            Layout.fillWidth: true
+                            PlasmaComponents.Label {
+                                text: i18n("Current 5-hour block")
+                                font.bold: true
+                                Layout.fillWidth: true
+                            }
+                            PlasmaComponents.Label {
+                                opacity: 0.7
+                                text: root.usage && root.usage.block
+                                      ? i18n("%1–%2 · resets in %3", root.fmtTime(root.usage.block.start),
+                                             root.fmtTime(root.usage.block.end), root.fmtMinutes(root.usage.block.minutesLeft))
+                                      : i18n("No active block")
                             }
                         }
-                        return cells
+                        PlasmaComponents.ProgressBar {
+                            Layout.fillWidth: true
+                            visible: !!(root.usage && root.usage.block)
+                            from: 0
+                            to: 300
+                            value: root.usage && root.usage.block ? 300 - root.usage.block.minutesLeft : 0
+                        }
+                        PlasmaComponents.Label {
+                            visible: !!(root.usage && root.usage.block)
+                            text: root.usage && root.usage.block
+                                  ? i18n("%1 tokens · ≈%2 · %3 requests", root.fmtTokens(root.usage.block.tokens),
+                                         root.fmtCost(root.usage.block.cost), root.usage.block.messages)
+                                  : ""
+                        }
                     }
-                    PlasmaComponents.Label {
-                        required property var modelData
-                        text: modelData.t
-                        font.bold: !!modelData.first
-                        opacity: modelData.h ? 0.7 : 1
-                        font.features: { "tnum": 1 }
-                        Layout.fillWidth: !!modelData.first || modelData.t === ""
-                        Layout.alignment: modelData.first || modelData.t === "" ? Qt.AlignLeft : Qt.AlignRight
-                    }
-                }
-            }
 
-            // Last 7 days bar chart (by tokens)
-            ColumnLayout {
-                visible: !root.errorText && !!root.usage
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
+                    // Period summary table
+                    GridLayout {
+                        visible: !root.errorText && !!root.usage
+                        Layout.fillWidth: true
+                        columns: 4
+                        columnSpacing: Kirigami.Units.largeSpacing
+                        rowSpacing: Kirigami.Units.smallSpacing
 
-                PlasmaComponents.Label { text: i18n("Daily tokens"); font.bold: true }
-                RowLayout {
-                    id: bars
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 4
-                    Layout.maximumHeight: Layout.preferredHeight
-                    spacing: Kirigami.Units.smallSpacing
-                    readonly property real peak: {
-                        let m = 1
-                        if (root.usage && root.usage.days) for (const d of root.usage.days) m = Math.max(m, d.tokens)
-                        return m
+                        // One flat list of cells, row by row: header row, then Today / 7 days / 30 days.
+                        Repeater {
+                            model: {
+                                const cells = [{ t: "" }, { t: i18n("Tokens"), h: true }, { t: i18n("≈ Cost"), h: true }, { t: i18n("Sessions"), h: true }]
+                                if (root.usage && root.usage.ok) {
+                                    for (const [label, b] of [[i18n("Today"), root.usage.today],
+                                                              [i18n("Last 7 days"), root.usage.week],
+                                                              [i18n("Last 30 days"), root.usage.month]]) {
+                                        cells.push({ t: label, first: true }, { t: root.fmtTokens(b.tokens) },
+                                                   { t: root.fmtCost(b.cost) }, { t: String(b.sessions) })
+                                    }
+                                }
+                                return cells
+                            }
+                            PlasmaComponents.Label {
+                                required property var modelData
+                                text: modelData.t
+                                font.bold: !!modelData.first
+                                opacity: modelData.h ? 0.7 : 1
+                                font.features: { "tnum": 1 }
+                                Layout.fillWidth: !!modelData.first || modelData.t === ""
+                                Layout.alignment: modelData.first || modelData.t === "" ? Qt.AlignLeft : Qt.AlignRight
+                            }
+                        }
                     }
+
+                    // Last 7 days bar chart (by tokens)
+                    ColumnLayout {
+                        visible: !root.errorText && !!root.usage
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+
+                        PlasmaComponents.Label { text: i18n("Daily tokens"); font.bold: true }
+                        RowLayout {
+                            id: bars
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Kirigami.Units.gridUnit * 4
+                            Layout.minimumHeight: Layout.preferredHeight
+                            Layout.maximumHeight: Layout.preferredHeight
+                            spacing: Kirigami.Units.smallSpacing
+                            readonly property real peak: {
+                                let m = 1
+                                if (root.usage && root.usage.days) for (const d of root.usage.days) m = Math.max(m, d.tokens)
+                                return m
+                            }
+                            Repeater {
+                                model: root.usage && root.usage.days ? root.usage.days : []
+                                ColumnLayout {
+                                    required property var modelData
+                                    required property int index
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    spacing: 2
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        Rectangle {
+                                            anchors.bottom: parent.bottom
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            width: Math.min(parent.width, Kirigami.Units.gridUnit * 1.5)
+                                            height: Math.max(modelData.tokens > 0 ? 2 : 0, parent.height * modelData.tokens / bars.peak)
+                                            radius: 2
+                                            color: index === 6 ? Kirigami.Theme.highlightColor
+                                                               : Qt.alpha(Kirigami.Theme.highlightColor, 0.55)
+                                        }
+                                        HoverHandler { id: barHover }
+                                        PlasmaComponents.ToolTip.text: i18n("%1: %2 tokens · ≈%3", modelData.date,
+                                                                            root.fmtTokens(modelData.tokens), root.fmtCost(modelData.cost))
+                                        PlasmaComponents.ToolTip.visible: barHover.hovered
+                                    }
+                                    PlasmaComponents.Label {
+                                        text: modelData.date
+                                        opacity: 0.7
+                                        font: Kirigami.Theme.smallFont
+                                        Layout.alignment: Qt.AlignHCenter
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Top projects and models over the last 7 days
                     Repeater {
-                        model: root.usage && root.usage.days ? root.usage.days : []
+                        model: root.usage && root.usage.ok ? [
+                            { title: i18n("Hosts (7 days)"), items: root.hostRows },
+                            { title: i18n("Projects (7 days)"), items: root.usage.week.projects },
+                            { title: i18n("Models (7 days)"), items: root.usage.week.models }
+                        ] : []
                         ColumnLayout {
                             required property var modelData
-                            required property int index
+                            visible: !root.errorText && modelData.items.length > 0
                             Layout.fillWidth: true
-                            Layout.fillHeight: true
                             spacing: 2
-                            Item {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                Rectangle {
-                                    anchors.bottom: parent.bottom
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    width: Math.min(parent.width, Kirigami.Units.gridUnit * 1.5)
-                                    height: Math.max(modelData.tokens > 0 ? 2 : 0, parent.height * modelData.tokens / bars.peak)
-                                    radius: 2
-                                    color: index === 6 ? Kirigami.Theme.highlightColor
-                                                       : Qt.alpha(Kirigami.Theme.highlightColor, 0.55)
+                            PlasmaComponents.Label { text: modelData.title; font.bold: true }
+                            Repeater {
+                                model: modelData.items
+                                RowLayout {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    PlasmaComponents.Label { text: modelData.name; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                    PlasmaComponents.Label {
+                                        visible: !!modelData.note
+                                        text: modelData.note || ""
+                                        opacity: 0.6
+                                        font: Kirigami.Theme.smallFont
+                                    }
+                                    PlasmaComponents.Label { text: root.fmtTokens(modelData.tokens); opacity: 0.7; font.features: { "tnum": 1 } }
+                                    PlasmaComponents.Label {
+                                        text: root.fmtCost(modelData.cost)
+                                        horizontalAlignment: Text.AlignRight
+                                        Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+                                        font.features: { "tnum": 1 }
+                                    }
                                 }
-                                HoverHandler { id: barHover }
-                                PlasmaComponents.ToolTip.text: i18n("%1: %2 tokens · ≈%3", modelData.date,
-                                                                    root.fmtTokens(modelData.tokens), root.fmtCost(modelData.cost))
-                                PlasmaComponents.ToolTip.visible: barHover.hovered
-                            }
-                            PlasmaComponents.Label {
-                                text: modelData.date
-                                opacity: 0.7
-                                font: Kirigami.Theme.smallFont
-                                Layout.alignment: Qt.AlignHCenter
                             }
                         }
                     }
-                }
-            }
 
-            // Top projects and models over the last 7 days
-            Repeater {
-                model: root.usage && root.usage.ok ? [
-                    { title: i18n("Hosts (7 days)"), items: root.usage.hosts.length > 1 ? root.usage.week.hosts : [] },
-                    { title: i18n("Projects (7 days)"), items: root.usage.week.projects },
-                    { title: i18n("Models (7 days)"), items: root.usage.week.models }
-                ] : []
-                ColumnLayout {
-                    required property var modelData
-                    visible: !root.errorText && modelData.items.length > 0
-                    Layout.fillWidth: true
-                    spacing: 2
-                    PlasmaComponents.Label { text: modelData.title; font.bold: true }
-                    Repeater {
-                        model: modelData.items
-                        RowLayout {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            PlasmaComponents.Label { text: modelData.name; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                            PlasmaComponents.Label { text: root.fmtTokens(modelData.tokens); opacity: 0.7; font.features: { "tnum": 1 } }
-                            PlasmaComponents.Label {
-                                text: root.fmtCost(modelData.cost)
-                                horizontalAlignment: Text.AlignRight
-                                Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-                                font.features: { "tnum": 1 }
-                            }
-                        }
+                    PlasmaComponents.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        opacity: 0.6
+                        font: Kirigami.Theme.smallFont
+                        text: root.usage && root.usage.ok
+                              ? i18n("Updated %1 · ≈ cost is Claude Code's API-equivalent estimate, not your plan's bill.",
+                                     root.fmtTime(root.usage.updated))
+                              : ""
                     }
                 }
-            }
-
-            Item { Layout.fillHeight: true }
-
-            PlasmaComponents.Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                opacity: 0.6
-                font: Kirigami.Theme.smallFont
-                text: root.usage && root.usage.ok
-                      ? i18n("Updated %1 · ≈ cost is Claude Code's API-equivalent estimate, not your plan's bill.",
-                             root.fmtTime(root.usage.updated))
-                      : ""
             }
         }
     }
