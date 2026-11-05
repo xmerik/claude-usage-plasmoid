@@ -3,6 +3,10 @@
 Panel widget showing Claude Code token usage and estimated cost, read from the local
 session logs in `~/.claude/projects/**/*.jsonl`. No network access and no credentials.
 
+<p align="center">
+  <img src="assets/claude-usage-widget.png" alt="Claude Code Usage popup and panel in KDE Plasma" width="380">
+</p>
+
 - **Panel:** tokens · ≈cost · time until the current 5-hour block resets (configurable).
   Middle-click refreshes. Optionally shows only the icon when no block is active.
 - **Popup:** current 5-hour block with burn rate and projected cost at reset, Today /
