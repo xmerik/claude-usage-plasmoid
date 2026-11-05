@@ -95,7 +95,8 @@ PlasmoidItem {
     }
     function summaryText() {
         if (!usage || !usage.ok) return errorText || i18n("Claude Code usage unavailable")
-        const line = (label, b) => i18n("%1: %2 tokens · ≈%3 · %4 sessions", label, fmtTokens(b.tokens), fmtCost(b.cost), b.sessions)
+        const line = (label, b) => i18n("%1: %2 tokens · ≈%3 · %4", label, fmtTokens(b.tokens), fmtCost(b.cost),
+                                             i18np("%1 session", "%1 sessions", b.sessions))
         const out = [i18n("Claude Code usage (%1)", new Date(usage.updated).toLocaleString(Qt.locale(), Locale.ShortFormat))]
         if (usage.block)
             out.push(i18n("5h block: %1 tokens · ≈%2 · resets in %3 · %4", fmtTokens(usage.block.tokens),

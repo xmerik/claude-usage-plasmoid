@@ -21,7 +21,7 @@ Download `claude-usage-*.plasmoid` from the
 [latest release](https://github.com/xmerik/claude-usage-plasmoid/releases/latest), then:
 
 ```bash
-kpackagetool6 -t Plasma/Applet -i claude-usage-1.3.plasmoid
+kpackagetool6 -t Plasma/Applet -i claude-usage-1.3.1.plasmoid
 systemctl --user restart plasma-plasmashell
 ```
 
