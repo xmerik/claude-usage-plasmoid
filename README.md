@@ -97,3 +97,7 @@ about half a second). Parsed logs are cached, so local-only runs are fast.
   PATH (Windows 10+ includes OpenSSH).
 - **Both:** to read the Windows-side logs from WSL, set
   `CLAUDE_CONFIG_DIR=/mnt/c/Users/<you>/.claude`.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE). Versions released before this change remain available under MIT.
