@@ -12,7 +12,7 @@
         "Id": "local.claudeusage",
         "License": "GPL-3.0-or-later",
         "Name": "Claude Code Usage",
-        "Version": "1.2"
+        "Version": "1.3"
     },
     "X-Plasma-API-Minimum-Version": "6.0"
 }

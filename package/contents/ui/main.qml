@@ -19,8 +19,16 @@ PlasmoidItem {
     // because it ends up on a shell command line.
     readonly property var remotes: (cfg.remotes || "").split(/[\s,]+/)
         .filter(r => /^[A-Za-z0-9._@-]+:[A-Za-z0-9._~\/-]*$/.test(r))
-    readonly property string command: "python3 -I '" + collector + "'"
-        + remotes.map(r => " --remote '" + r + "'").join("")
+    function command(force) {
+        return "python3 -I '" + collector + "' --top " + (cfg.topItems >= 0 ? Math.floor(cfg.topItems) : 5)
+            + remotes.map(r => " --remote '" + r + "'").join("")
+            + (force ? " --force" : "")
+    }
+    // No active block and nothing wrong: optionally hide the label (and park the icon in
+    // the system tray's hidden section, when it lives there).
+    readonly property bool idle: !!(usage && usage.ok && !usage.block) && !errorText && errorHosts.length === 0
+    readonly property bool hideLabel: cfg.hideWhenIdle && idle
+    Plasmoid.status: hideLabel && !expanded ? PlasmaCore.Types.PassiveStatus : PlasmaCore.Types.ActiveStatus
     // Offline hosts (asleep, away) are expected and only get a quiet label; real errors
     // (key rejected, python3 missing, ...) get a one-line banner and the warning icon.
     readonly property var errorHosts: usage && usage.hosts ? usage.hosts.filter(h => !h.ok && !h.offline) : []
@@ -76,9 +84,73 @@ PlasmoidItem {
     function fmtTime(iso) {
         return iso ? new Date(iso).toLocaleTimeString(Qt.locale(), Locale.ShortFormat) : ""
     }
-    function refresh() {
-        executable.disconnectSource(command)
-        executable.connectSource(command)
+    // force: also retry remote hosts that were offline a moment ago (manual refreshes).
+    function refresh(force) {
+        const cmd = command(!!force)
+        executable.disconnectSource(cmd)
+        executable.connectSource(cmd)
+    }
+    function blockLine(b) {
+        return i18n("≈%1/h · ≈%2 by reset", fmtCost(b.costPerHour), fmtCost(b.projectedCost))
+    }
+    function summaryText() {
+        if (!usage || !usage.ok) return errorText || i18n("Claude Code usage unavailable")
+        const line = (label, b) => i18n("%1: %2 tokens · ≈%3 · %4 sessions", label, fmtTokens(b.tokens), fmtCost(b.cost), b.sessions)
+        const out = [i18n("Claude Code usage (%1)", new Date(usage.updated).toLocaleString(Qt.locale(), Locale.ShortFormat))]
+        if (usage.block)
+            out.push(i18n("5h block: %1 tokens · ≈%2 · resets in %3 · %4", fmtTokens(usage.block.tokens),
+                          fmtCost(usage.block.cost), fmtMinutes(usage.block.minutesLeft), blockLine(usage.block)))
+        out.push(line(i18n("Today"), usage.today), line(i18n("Last 7 days"), usage.week), line(i18n("Last 30 days"), usage.month))
+        return out.join("\n")
+    }
+    function copySummary() {
+        clipHelper.text = summaryText()
+        clipHelper.selectAll()
+        clipHelper.copy()
+        clipHelper.text = ""
+    }
+    TextEdit { id: clipHelper; visible: false }
+
+    // Cost alerts: at most one per 5-hour block and one per day, remembered in the config
+    // so a Plasma restart doesn't repeat them.
+    function checkAlerts() {
+        if (!usage || !usage.ok) return
+        const b = usage.block
+        if (cfg.alertBlockCost > 0 && b && b.cost >= cfg.alertBlockCost && cfg.alertedBlock !== b.start) {
+            cfg.alertedBlock = b.start
+            notify(i18n("5-hour block passed %1", fmtCost(cfg.alertBlockCost)),
+                   i18n("≈%1 so far, resets in %2 (%3).", fmtCost(b.cost), fmtMinutes(b.minutesLeft), blockLine(b)))
+        }
+        const day = new Date().toDateString()
+        if (cfg.alertDayCost > 0 && usage.today.cost >= cfg.alertDayCost && cfg.alertedDay !== day) {
+            cfg.alertedDay = day
+            notify(i18n("Today passed %1", fmtCost(cfg.alertDayCost)),
+                   i18n("≈%1 and %2 tokens so far today.", fmtCost(usage.today.cost), fmtTokens(usage.today.tokens)))
+        }
+    }
+    // KNotifications' QML module is used when installed; otherwise fall back to notify-send.
+    // It's loaded at runtime so a missing module can't break the whole widget.
+    property var notifier: null
+    Component.onCompleted: {
+        const c = Qt.createComponent("Notifier.qml")
+        if (c.status === Component.Ready) notifier = c.createObject(root)
+    }
+    function notify(title, text) {
+        if (notifier) {
+            notifier.title = title
+            notifier.text = text
+            notifier.sendEvent()
+            return
+        }
+        const q = s => "'" + String(s).replace(/'/g, "'\\''") + "'"
+        notifySource.connectSource("notify-send -a " + q(i18n("Claude Code Usage")) + " -i view-statistics "
+                                   + q(title) + " " + q(text))
+    }
+    P5Support.DataSource {
+        id: notifySource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source) => disconnectSource(source)
     }
 
     P5Support.DataSource {
@@ -95,6 +167,7 @@ PlasmoidItem {
                 const parsed = JSON.parse(data.stdout)
                 root.usage = parsed
                 root.errorText = parsed.ok ? "" : parsed.error
+                root.checkAlerts()
             } catch (e) {
                 root.errorText = i18n("Could not read collector output: %1", e.message)
             }
@@ -120,6 +193,9 @@ PlasmoidItem {
         const t = usage.today, b = usage.block
         let s = i18n("Today: %1 tokens · ≈%2", fmtTokens(t.tokens), fmtCost(t.cost))
         if (b) s += "\n" + i18n("5h block: %1 tokens · resets in %2", fmtTokens(b.tokens), fmtMinutes(b.minutesLeft))
+                    + "\n" + blockLine(b)
+        else s += "\n" + i18n("No active 5-hour block")
+        s += "\n" + i18n("Middle-click to refresh")
         for (const h of errorHosts)
             s += "\n⚠ " + h.name + ": " + shortError(h.error)
         for (const h of offlineHosts)
@@ -131,7 +207,13 @@ PlasmoidItem {
         PlasmaCore.Action {
             text: i18n("Refresh")
             icon.name: "view-refresh"
-            onTriggered: root.refresh()
+            onTriggered: root.refresh(true)
+        },
+        PlasmaCore.Action {
+            text: i18n("Copy Summary")
+            icon.name: "edit-copy"
+            enabled: !!(root.usage && root.usage.ok)
+            onTriggered: root.copySummary()
         }
     ]
 
@@ -141,7 +223,11 @@ PlasmoidItem {
         Layout.minimumWidth: vertical ? -1 : row.implicitWidth + Kirigami.Units.smallSpacing * 2
         Layout.preferredWidth: Layout.minimumWidth
         hoverEnabled: true
-        onClicked: root.expanded = !root.expanded
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        onClicked: (mouse) => {
+            if (mouse.button === Qt.MiddleButton) root.refresh(true)
+            else root.expanded = !root.expanded
+        }
 
         RowLayout {
             id: row
@@ -149,13 +235,14 @@ PlasmoidItem {
             spacing: Kirigami.Units.smallSpacing
 
             Kirigami.Icon {
-                visible: root.cfg.showIcon || compact.vertical
+                // Always shown when the label is hidden, so the widget never shrinks to nothing.
+                visible: root.cfg.showIcon || compact.vertical || root.hideLabel
                 source: root.errorText || root.errorHosts.length ? "dialog-warning" : "view-statistics"
                 Layout.preferredWidth: Kirigami.Units.iconSizes.small
                 Layout.preferredHeight: Kirigami.Units.iconSizes.small
             }
             PlasmaComponents.Label {
-                visible: !compact.vertical
+                visible: !compact.vertical && !root.hideLabel
                 text: {
                     if (root.errorText) return i18n("error")
                     const b = root.panelBucket
@@ -188,7 +275,7 @@ PlasmoidItem {
                 }
                 PlasmaComponents.ToolButton {
                     icon.name: "view-refresh"
-                    onClicked: root.refresh()
+                    onClicked: root.refresh(true)
                     PlasmaComponents.ToolTip.text: i18n("Refresh")
                     PlasmaComponents.ToolTip.visible: hovered
                 }
@@ -269,6 +356,14 @@ PlasmoidItem {
                                   ? i18n("%1 tokens · ≈%2 · %3 requests", root.fmtTokens(root.usage.block.tokens),
                                          root.fmtCost(root.usage.block.cost), root.usage.block.messages)
                                   : ""
+                        }
+                        PlasmaComponents.Label {
+                            visible: !!(root.usage && root.usage.block)
+                            opacity: 0.7
+                            text: root.usage && root.usage.block ? root.blockLine(root.usage.block) : ""
+                            PlasmaComponents.ToolTip.text: i18n("Average since the block's first request, projected to the reset if usage continues at this pace.")
+                            PlasmaComponents.ToolTip.visible: burnHover.hovered
+                            HoverHandler { id: burnHover }
                         }
                     }
 
@@ -379,7 +474,12 @@ PlasmoidItem {
                                 RowLayout {
                                     required property var modelData
                                     Layout.fillWidth: true
-                                    PlasmaComponents.Label { text: modelData.name; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                    PlasmaComponents.Label {
+                                        text: modelData.other ? i18np("%1 other", "%1 others", modelData.count) : modelData.name
+                                        opacity: modelData.other ? 0.7 : 1
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                    }
                                     PlasmaComponents.Label {
                                         visible: !!modelData.note
                                         text: modelData.note || ""

@@ -25,6 +25,34 @@
     <entry name="showIcon" type="Bool">
       <default>true</default>
     </entry>
+    <!-- Hide the panel label (icon only) when there's no active 5-hour block -->
+    <entry name="hideWhenIdle" type="Bool">
+      <default>false</default>
+    </entry>
+    <!-- Rows per Projects/Models list before the rest are grouped as "others"; 0 = all -->
+    <entry name="topItems" type="Int">
+      <default>5</default>
+      <min>0</min>
+      <max>50</max>
+    </entry>
+    <!-- Notify when the 5-hour block / today passes this many dollars; 0 = off -->
+    <entry name="alertBlockCost" type="Int">
+      <default>0</default>
+      <min>0</min>
+      <max>100000</max>
+    </entry>
+    <entry name="alertDayCost" type="Int">
+      <default>0</default>
+      <min>0</min>
+      <max>100000</max>
+    </entry>
+    <!-- Internal: last block start / day already alerted, so alerts don't repeat -->
+    <entry name="alertedBlock" type="String">
+      <default></default>
+    </entry>
+    <entry name="alertedDay" type="String">
+      <default></default>
+    </entry>
     <!-- SSH hosts to include, one "host:/path/to/.claude" per line -->
     <entry name="remotes" type="String">
       <default></default>
