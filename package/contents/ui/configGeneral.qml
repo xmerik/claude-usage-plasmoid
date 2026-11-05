@@ -12,6 +12,13 @@ KCM.SimpleKCM {
     property alias cfg_showReset: showReset.checked
     property alias cfg_showIcon: showIcon.checked
     property alias cfg_remotes: remotes.text
+    property alias cfg_hideWhenIdle: hideWhenIdle.checked
+    property alias cfg_topItems: topItems.value
+    property alias cfg_alertBlockCost: alertBlock.value
+    property alias cfg_alertDayCost: alertDay.value
+
+    readonly property var dollars: (v) => v === 0 ? i18n("Off") : "$" + v
+    readonly property var parseDollars: (t) => /off/i.test(t) ? 0 : (parseInt(String(t).replace(/[^0-9]/g, "")) || 0)
 
     Kirigami.FormLayout {
         QQC2.SpinBox {
@@ -46,6 +53,49 @@ KCM.SimpleKCM {
         QQC2.CheckBox {
             id: showReset
             text: i18n("Time until the 5-hour block resets")
+        }
+        QQC2.CheckBox {
+            id: hideWhenIdle
+            text: i18n("Only the icon when no 5-hour block is active")
+        }
+
+        QQC2.SpinBox {
+            id: topItems
+            Kirigami.FormData.label: i18n("Projects and models:")
+            from: 0
+            to: 50
+            textFromValue: (v) => v === 0 ? i18n("Show all") : i18n("Top %1, then others", v)
+            valueFromText: (t) => parseInt(t) || 0
+        }
+
+        Item { Kirigami.FormData.isSection: true }
+
+        QQC2.SpinBox {
+            id: alertBlock
+            Kirigami.FormData.label: i18n("Notify when the 5-hour block passes:")
+            from: 0
+            to: 100000
+            stepSize: 5
+            editable: true
+            textFromValue: (v) => dollars(v)
+            valueFromText: (t) => parseDollars(t)
+        }
+        QQC2.SpinBox {
+            id: alertDay
+            Kirigami.FormData.label: i18n("Notify when today passes:")
+            from: 0
+            to: 100000
+            stepSize: 5
+            editable: true
+            textFromValue: (v) => dollars(v)
+            valueFromText: (t) => parseDollars(t)
+        }
+        QQC2.Label {
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.7
+            text: i18n("Estimated API-equivalent cost. At most one notification per block and per day.")
         }
 
         Item { Kirigami.FormData.isSection: true }
