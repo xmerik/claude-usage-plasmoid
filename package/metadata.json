@@ -10,7 +10,7 @@
         "Description": "Claude Code token usage and estimated cost from local session logs",
         "Icon": "view-statistics",
         "Id": "local.claudeusage",
-        "License": "MIT",
+        "License": "GPL-3.0-or-later",
         "Name": "Claude Code Usage",
         "Version": "1.2"
     },
